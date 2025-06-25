@@ -19,6 +19,7 @@ type Config struct {
 		Address  string `cfg:"{'name':'address'}"`
 		Username string `cfg:"{'name':'username'}"`
 		Password string `cfg:"{'name':'password'}"`
+		Name     string `cfg:"{'name':'name'}"`
 	} `cfg:"{'name':'targets'}"`
 }
 
@@ -41,25 +42,30 @@ func main() {
 		os.Exit(-1)
 	}
 
-	// Connect to MikroTik using v3 client
-	client, err := routeros.DialTLS(
-		cfg.Targets[0].Address,
-		cfg.Targets[0].Username,
-		cfg.Targets[0].Password,
-		&tls.Config{
-			InsecureSkipVerify: true,
-		},
-	)
-	if err != nil {
-		log.Fatalf("failed to connect to MikroTik: %v", err)
-	}
-	defer client.Close()
+	targets := make([]collector.Target, 0)
 
-	// Create and register collector
-	collector := collector.NewMikroTikCollector(client)
+	for _, target := range cfg.Targets {
+		client, err := routeros.DialTLS(
+			target.Address,
+			target.Username,
+			target.Password,
+			&tls.Config{
+				InsecureSkipVerify: true,
+			},
+		)
+		if err != nil {
+			log.Fatalf("failed to connect to MikroTik: %v", err)
+		}
+
+		targets = append(targets, collector.Target{
+			Name:   target.Name,
+			Client: client,
+		})
+	}
+
+	collector := collector.NewMikroTikCollector(targets)
 	prometheus.MustRegister(collector)
 
-	// Set up HTTP server for metrics
 	http.Handle("/metrics", promhttp.Handler())
 	log.Println("Starting server on :9100")
 	log.Fatal(http.ListenAndServe(":9100", nil))

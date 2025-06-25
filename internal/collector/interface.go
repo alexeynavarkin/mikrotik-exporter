@@ -8,8 +8,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func (c *MikroTikCollector) collectInterfaceMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
-	res, err := c.client.RunContext(ctx, "/interface/print")
+func (c *MikroTikCollector) collectInterfaceMetrics(ctx context.Context, target Target, ch chan<- prometheus.Metric) {
+	res, err := target.Client.RunContext(ctx, "/interface/print")
 	if err != nil {
 		log.Printf("Error getting interface metrics: %v", err)
 		return
@@ -28,7 +28,7 @@ func (c *MikroTikCollector) collectInterfaceMetrics(ctx context.Context, ch chan
 					c.interfaceTraffic,
 					prometheus.CounterValue,
 					value,
-					name, "rx",
+					name, "rx", target.Name,
 				)
 			}
 		}
@@ -40,7 +40,7 @@ func (c *MikroTikCollector) collectInterfaceMetrics(ctx context.Context, ch chan
 					c.interfaceTraffic,
 					prometheus.CounterValue,
 					value,
-					name, "tx",
+					name, "tx", target.Name,
 				)
 			}
 		}

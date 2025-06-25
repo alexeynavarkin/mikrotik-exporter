@@ -8,8 +8,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func (c *MikroTikCollector) collectWireguardMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
-	res, err := c.client.RunContext(
+func (c *MikroTikCollector) collectWireguardMetrics(ctx context.Context, target Target, ch chan<- prometheus.Metric) {
+	res, err := target.Client.RunContext(
 		ctx,
 		"/interface/wireguard/peers/print",
 		"proplist=interface,name,rx,tx",
@@ -37,7 +37,7 @@ func (c *MikroTikCollector) collectWireguardMetrics(ctx context.Context, ch chan
 					c.wireguardPeerTraffic,
 					prometheus.CounterValue,
 					value,
-					iface, name, "rx",
+					iface, name, "rx", target.Name,
 				)
 			}
 		}
@@ -49,7 +49,7 @@ func (c *MikroTikCollector) collectWireguardMetrics(ctx context.Context, ch chan
 					c.wireguardPeerTraffic,
 					prometheus.CounterValue,
 					value,
-					iface, name, "tx",
+					iface, name, "tx", target.Name,
 				)
 			}
 		}
