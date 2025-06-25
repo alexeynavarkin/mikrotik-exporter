@@ -2,52 +2,62 @@ package collector
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/go-routeros/routeros/v3"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// MikroTikCollector collects metrics from a MikroTik device
+type Target struct {
+	Name   string
+	Client *routeros.Client
+}
+
 type MikroTikCollector struct {
-	client *routeros.Client
+	targets []Target
 
 	interfaceTraffic     *prometheus.Desc
 	wireguardPeerTraffic *prometheus.Desc
 }
 
-// NewMikroTikCollector creates a new collector
-func NewMikroTikCollector(client *routeros.Client) *MikroTikCollector {
+func NewMikroTikCollector(targets []Target) *MikroTikCollector {
 	return &MikroTikCollector{
-		client: client,
+		targets: targets,
 		interfaceTraffic: prometheus.NewDesc(
 			"mikrotik_interface_traffic_bytes",
 			"Interface received and transmitted bytes",
-			[]string{"interface", "direction"},
+			[]string{"interface", "direction", "name"},
 			nil,
 		),
 		wireguardPeerTraffic: prometheus.NewDesc(
 			"mikrotik_wireguard_peer_traffic_bytes",
 			"Wireguard peer recceived and trasmitted bytes",
-			[]string{"interface", "peer", "direction"},
+			[]string{"interface", "peer", "direction", "name"},
 			nil,
 		),
 	}
 }
 
-// Describe sends the super-set of all possible descriptors of metrics
 func (c *MikroTikCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.interfaceTraffic
 
 	ch <- c.wireguardPeerTraffic
 }
 
-// Collect fetches metrics from MikroTik and sends them to the provided channel
 func (c *MikroTikCollector) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	c.collectInterfaceMetrics(ctx, ch)
+	wg := sync.WaitGroup{}
+	for _, target := range c.targets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.collectInterfaceMetrics(ctx, target, ch)
+			c.collectWireguardMetrics(ctx, target, ch)
+		}()
+	}
 
-	c.collectWireguardMetrics(ctx, ch)
+	wg.Wait()
 }
