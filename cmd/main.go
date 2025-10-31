@@ -1,17 +1,17 @@
 package main
 
 import (
-	"crypto/tls"
 	"log"
 	"net/http"
 	"os"
 
 	config "github.com/ThomasObenaus/go-conf"
-	"github.com/go-routeros/routeros/v3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 
 	"github.com/alexeynavarkin/mikrotik-exporter/internal/collector"
+	"github.com/alexeynavarkin/mikrotik-exporter/internal/mikrotik"
 )
 
 type Config struct {
@@ -42,25 +42,34 @@ func main() {
 		os.Exit(-1)
 	}
 
-	targets := make([]collector.Target, 0)
+	lg, err := zap.NewProduction()
+	if err != nil {
+		log.Println("failed to build logger", err)
+		os.Exit(-1)
+	}
 
+	targets := make([]collector.Target, 0)
 	for _, target := range cfg.Targets {
-		client, err := routeros.DialTLS(
-			target.Address,
-			target.Username,
-			target.Password,
-			&tls.Config{
-				InsecureSkipVerify: true,
+		client := mikrotik.NewRetryClient(
+			mikrotik.RetryClientConfig{
+				Username:   target.Username,
+				Password:   target.Password,
+				Address:    target.Address,
+				RetryCount: 2,
 			},
+			lg,
 		)
 		if err != nil {
 			log.Fatalf("failed to connect to MikroTik: %v", err)
 		}
 
-		targets = append(targets, collector.Target{
-			Name:   target.Name,
-			Client: client,
-		})
+		targets = append(
+			targets,
+			collector.Target{
+				Name:   target.Name,
+				Client: client,
+			},
+		)
 	}
 
 	collector := collector.NewMikroTikCollector(targets)

@@ -5,13 +5,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-routeros/routeros/v3"
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/alexeynavarkin/mikrotik-exporter/internal/mikrotik"
 )
 
 type Target struct {
 	Name   string
-	Client *routeros.Client
+	Client mikrotik.Client
 }
 
 type MikroTikCollector struct {
