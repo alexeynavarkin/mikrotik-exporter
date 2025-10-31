@@ -5,13 +5,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-routeros/routeros/v3"
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/alexeynavarkin/mikrotik-exporter/internal/mikrotik"
 )
 
 type Target struct {
 	Name   string
-	Client *routeros.Client
+	Client mikrotik.Client
 }
 
 type MikroTikCollector struct {
@@ -54,8 +55,13 @@ func (c *MikroTikCollector) Collect(ch chan<- prometheus.Metric) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c.collectInterfaceMetrics(ctx, target, ch)
 			c.collectWireguardMetrics(ctx, target, ch)
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.collectInterfaceMetrics(ctx, target, ch)
 		}()
 	}
 
