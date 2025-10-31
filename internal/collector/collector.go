@@ -55,8 +55,13 @@ func (c *MikroTikCollector) Collect(ch chan<- prometheus.Metric) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c.collectInterfaceMetrics(ctx, target, ch)
 			c.collectWireguardMetrics(ctx, target, ch)
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.collectInterfaceMetrics(ctx, target, ch)
 		}()
 	}
 
