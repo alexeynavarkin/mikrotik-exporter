@@ -50,9 +50,6 @@ func (c *RetryClient) lazyInit(ctx context.Context) error {
 }
 
 func (c *RetryClient) init(ctx context.Context) error {
-	c.clientLock.Lock()
-	defer c.clientLock.Unlock()
-
 	if c.client != nil {
 		err := c.client.Close()
 		if err != nil {
@@ -75,6 +72,9 @@ func (c *RetryClient) init(ctx context.Context) error {
 }
 
 func (c *RetryClient) RunContext(ctx context.Context, sentences ...string) (*routeros.Reply, error) {
+	c.clientLock.Lock()
+	defer c.clientLock.Unlock()
+
 	err := c.lazyInit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init client: %w", err)
