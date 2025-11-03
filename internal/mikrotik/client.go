@@ -7,10 +7,16 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"syscall"
 
 	"github.com/go-routeros/routeros/v3"
 	"go.uber.org/zap"
 )
+
+var retryableErrors = []error{
+	io.ErrClosedPipe,
+	syscall.EPIPE,
+}
 
 type Client interface {
 	RunContext(ctx context.Context, sentences ...string) (*routeros.Reply, error)
@@ -87,7 +93,7 @@ func (c *RetryClient) RunContext(ctx context.Context, sentences ...string) (*rou
 			return res, nil
 		}
 
-		if errors.Is(err, io.ErrClosedPipe) {
+		if isRetryableError(err) {
 			c.lg.Warn("command failed, re init client", zap.Error(err))
 			err := c.init(ctx)
 			if err != nil {
@@ -101,4 +107,13 @@ func (c *RetryClient) RunContext(ctx context.Context, sentences ...string) (*rou
 	}
 
 	return res, err
+}
+
+func isRetryableError(err error) bool {
+	for _, retryableErr := range retryableErrors {
+		if errors.Is(err, retryableErr) {
+			return true
+		}
+	}
+	return false
 }
