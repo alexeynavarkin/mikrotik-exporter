@@ -44,6 +44,13 @@ and are only logged at debug level; disable them via `collectors`.
 | container | `mikrotik_container_info`, `mikrotik_container_running`, `mikrotik_container_status` |
 | dhcp | `mikrotik_dhcp_leases` |
 
+## Grafana
+
+Import [`grafana/mikrotik.json`](grafana/mikrotik.json) (Dashboards → New → Import,
+Grafana 10+), then pick the Prometheus data source in the dashboard's
+`Data source` variable. Rows: overview, system (CPU, RAM, storage, sensors,
+disks), interfaces, WireGuard, containers, DHCP and exporter health.
+
 Example queries:
 
 ```promql
