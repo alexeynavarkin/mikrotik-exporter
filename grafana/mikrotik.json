@@ -1708,7 +1708,7 @@
     },
     {
       "type": "row",
-      "title": "Containers",
+      "title": "Wireless",
       "id": 28,
       "collapsed": false,
       "gridPos": {
@@ -1720,8 +1720,8 @@
       "panels": []
     },
     {
-      "type": "table",
-      "title": "Containers",
+      "type": "timeseries",
+      "title": "Clients per interface",
       "id": 29,
       "datasource": {
         "type": "prometheus",
@@ -1730,6 +1730,411 @@
       "gridPos": {
         "x": 0,
         "y": 73,
+        "w": 8,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count by (name, interface) (mikrotik_wireless_client_info{name=~\"$router\"})",
+          "legendFormat": "{{name}} {{interface}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "description": "Clients from /interface/wifi, /interface/wireless and legacy CAPsMAN registration tables"
+    },
+    {
+      "type": "table",
+      "title": "Clients",
+      "id": 30,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 73,
+        "w": 16,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(mikrotik_wireless_client_signal_dbm{name=~\"$router\"}) * on(name, interface, mac) group_left(hostname, ip, ssid) mikrotik_wireless_client_info{name=~\"$router\"}",
+          "legendFormat": "",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(sum without (direction) (mikrotik_wireless_client_rate_bps{name=~\"$router\",direction=\"tx\"})) * on(name, interface, mac) group_left(hostname, ip, ssid) mikrotik_wireless_client_info{name=~\"$router\"}",
+          "legendFormat": "",
+          "refId": "B",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(sum without (direction) (mikrotik_wireless_client_rate_bps{name=~\"$router\",direction=\"rx\"})) * on(name, interface, mac) group_left(hostname, ip, ssid) mikrotik_wireless_client_info{name=~\"$router\"}",
+          "legendFormat": "",
+          "refId": "C",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(mikrotik_wireless_client_uptime_seconds{name=~\"$router\"}) * on(name, interface, mac) group_left(hostname, ip, ssid) mikrotik_wireless_client_info{name=~\"$router\"}",
+          "legendFormat": "",
+          "refId": "D",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Signal"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dBm"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": -80
+                    },
+                    {
+                      "color": "green",
+                      "value": -67
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "TX rate|RX rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bps"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Connected"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Signal",
+            "desc": false
+          }
+        ]
+      },
+      "description": "Hostname and IP come from DHCP leases (lease comment wins over host-name). TX is from the access point to the client.",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "instance": true
+            },
+            "indexByName": {
+              "name": 0,
+              "interface": 1,
+              "ssid": 2,
+              "hostname": 3,
+              "ip": 4,
+              "mac": 5,
+              "Value #A": 6,
+              "Value #B": 7,
+              "Value #C": 8,
+              "Value #D": 9
+            },
+            "renameByName": {
+              "name": "Router",
+              "interface": "Interface",
+              "ssid": "SSID",
+              "hostname": "Hostname",
+              "ip": "IP",
+              "mac": "MAC",
+              "Value #A": "Signal",
+              "Value #B": "TX rate",
+              "Value #C": "RX rate",
+              "Value #D": "Connected"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Client signal",
+      "id": 31,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 83,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "mikrotik_wireless_client_signal_dbm{name=~\"$router\"} * on(name, interface, mac) group_left(hostname, ip, ssid) mikrotik_wireless_client_info{name=~\"$router\"}",
+          "legendFormat": "{{hostname}} {{mac}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dBm",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "description": "Below -67 dBm is weak for voice/video, below -80 dBm is unusable"
+    },
+    {
+      "type": "timeseries",
+      "title": "Client traffic (top 10)",
+      "id": 32,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 83,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "topk(10, rate(mikrotik_wireless_client_traffic_bytes{name=~\"$router\"}[$__rate_interval]) * 8 * on(name, interface, mac) group_left(hostname, ip, ssid) mikrotik_wireless_client_info{name=~\"$router\"})",
+          "legendFormat": "{{hostname}} {{mac}} {{direction}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".* tx$"
+            },
+            "properties": [
+              {
+                "id": "custom.transform",
+                "value": "negative-Y"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "description": "TX (to the client) above zero is shown below zero; counters reset when a client reconnects"
+    },
+    {
+      "type": "row",
+      "title": "Containers",
+      "id": 33,
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 91,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Containers",
+      "id": 34,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -1843,14 +2248,14 @@
     {
       "type": "state-timeline",
       "title": "Container state",
-      "id": 30,
+      "id": 35,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
       "gridPos": {
         "x": 12,
-        "y": 73,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -1921,11 +2326,11 @@
     {
       "type": "row",
       "title": "DHCP and exporter",
-      "id": 31,
+      "id": 36,
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 81,
+        "y": 100,
         "w": 24,
         "h": 1
       },
@@ -1934,14 +2339,14 @@
     {
       "type": "timeseries",
       "title": "DHCP leases",
-      "id": 32,
+      "id": 37,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
       "gridPos": {
         "x": 0,
-        "y": 82,
+        "y": 101,
         "w": 8,
         "h": 8
       },
@@ -1997,14 +2402,14 @@
     {
       "type": "state-timeline",
       "title": "Collector status",
-      "id": 33,
+      "id": 38,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
       "gridPos": {
         "x": 8,
-        "y": 82,
+        "y": 101,
         "w": 8,
         "h": 8
       },
@@ -2076,14 +2481,14 @@
     {
       "type": "timeseries",
       "title": "Collector duration",
-      "id": 34,
+      "id": 39,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
       "gridPos": {
         "x": 16,
-        "y": 82,
+        "y": 101,
         "w": 8,
         "h": 8
       },

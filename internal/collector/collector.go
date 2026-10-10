@@ -42,10 +42,11 @@ var collectorFactories = []struct {
 	{"disk", newDiskCollector},
 	{"container", newContainerCollector},
 	{"dhcp", newDHCPCollector},
+	{"wireless", newWirelessCollector},
 }
 
 // DefaultCollectors are used for targets with no explicit collectors list.
-var DefaultCollectors = []string{"system", "health", "interface", "wireguard", "disk", "container"}
+var DefaultCollectors = []string{"system", "health", "interface", "wireguard", "disk", "container", "wireless"}
 
 // ValidateCollectors returns an error if any of the names is not a known collector.
 func ValidateCollectors(names []string) error {
