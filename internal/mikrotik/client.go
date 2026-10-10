@@ -5,8 +5,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-routeros/routeros/v3"
 	"go.uber.org/zap"
@@ -31,6 +33,7 @@ type RetryClient struct {
 	lg *zap.Logger
 
 	client     *routeros.Client
+	conn       net.Conn
 	clientLock sync.Mutex
 }
 
@@ -43,32 +46,56 @@ func NewRetryClient(cfg RetryClientConfig, lg *zap.Logger) Client {
 
 func (c *RetryClient) connect(ctx context.Context) error {
 	var (
-		client *routeros.Client
-		err    error
+		conn net.Conn
+		err  error
 	)
 	if c.cfg.PlainText {
-		client, err = routeros.DialContext(ctx, c.cfg.Address, c.cfg.Username, c.cfg.Password)
+		conn, err = (&net.Dialer{}).DialContext(ctx, "tcp", c.cfg.Address)
 	} else {
-		client, err = routeros.DialTLSContext(
-			ctx,
-			c.cfg.Address,
-			c.cfg.Username,
-			c.cfg.Password,
-			&tls.Config{
-				InsecureSkipVerify: true,
-			},
-		)
+		conn, err = (&tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}).DialContext(ctx, "tcp", c.cfg.Address)
 	}
 	if err != nil {
+		return fmt.Errorf("could not connect to router os: %w", err)
+	}
+
+	client, err := routeros.NewClient(conn)
+	if err != nil {
+		_ = conn.Close()
 		return err
 	}
 
-	// In sync mode the library ignores the context passed to RunContext,
-	// so a stuck device would block the scrape forever. Async mode honors it.
-	client.Async()
-	c.client = client
+	err = withDeadline(ctx, conn, func() error {
+		return client.LoginContext(ctx, c.cfg.Username, c.cfg.Password)
+	})
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("could not login: %w", err)
+	}
+
+	c.client, c.conn = client, conn
 
 	return nil
+}
+
+// withDeadline bounds fn by ctx through the connection deadline. The library
+// ignores the context in sync mode, and its async mode loses replies that
+// arrive before the request tag is registered, so neither can be relied on.
+func withDeadline(ctx context.Context, conn net.Conn, fn func() error) error {
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	stop := context.AfterFunc(ctx, func() {
+		_ = conn.SetDeadline(time.Now())
+	})
+
+	err := fn()
+
+	if !stop() && ctx.Err() != nil && err != nil {
+		err = fmt.Errorf("%w: %w", ctx.Err(), err)
+	}
+	_ = conn.SetDeadline(time.Time{})
+
+	return err
 }
 
 func (c *RetryClient) disconnect() {
@@ -79,7 +106,7 @@ func (c *RetryClient) disconnect() {
 	if err := c.client.Close(); err != nil {
 		c.lg.Debug("failed to close client", zap.String("address", c.cfg.Address), zap.Error(err))
 	}
-	c.client = nil
+	c.client, c.conn = nil, nil
 }
 
 func (c *RetryClient) RunContext(ctx context.Context, sentences ...string) (*routeros.Reply, error) {
@@ -95,7 +122,11 @@ func (c *RetryClient) RunContext(ctx context.Context, sentences ...string) (*rou
 		}
 
 		var res *routeros.Reply
-		res, err = c.client.RunContext(ctx, sentences...)
+		err = withDeadline(ctx, c.conn, func() error {
+			var runErr error
+			res, runErr = c.client.RunContext(ctx, sentences...)
+			return runErr
+		})
 		if err == nil {
 			return res, nil
 		}
