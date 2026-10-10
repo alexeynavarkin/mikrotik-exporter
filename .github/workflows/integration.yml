@@ -1,0 +1,75 @@
+name: Integration
+
+# Runs the exporter against a real RouterOS (CHR in QEMU/KVM) on the current
+# stable and long-term releases. The weekly run catches new RouterOS releases.
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+jobs:
+  chr:
+    name: RouterOS ${{ matrix.channel }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [ stable, long-term ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+
+      - name: Start CHR
+        env:
+          CHR_VERSION: ${{ matrix.channel }}
+          CHR_PACKAGES: container wireless
+        run: dev/chr/run-chr.sh
+
+      - name: Integration test (api)
+        env:
+          MIKROTIK_TEST_ADDRESS: 127.0.0.1:8728
+          MIKROTIK_TEST_REQUIRED_COLLECTORS: system,health,interface,wireguard,disk,container,wireless,dhcp
+        run: go test -count=1 -v -run Integration ./internal/collector
+
+      - name: Integration test (api-ssl)
+        env:
+          MIKROTIK_TEST_ADDRESS: 127.0.0.1:8729
+          MIKROTIK_TEST_TLS: '1'
+        run: go test -count=1 -v -run Integration ./internal/collector
+
+      - name: Exporter smoke test
+        run: |
+          go build -o exporter ./cmd
+          ./exporter --config-file=dev/chr/exporter.yml --listen-address=127.0.0.1:9199 &
+          for _ in $(seq 1 30); do curl -fsS 127.0.0.1:9199/metrics > metrics.txt 2>/dev/null && break; sleep 1; done
+          grep '^mikrotik_up{name="chr"} 1$' metrics.txt
+          grep -c '^mikrotik_' metrics.txt
+
+      - name: Show CHR serial console
+        if: failure()
+        run: tail -n 200 ~/.cache/mikrotik-exporter-chr/run/serial.log || true
+
+      - name: Stop CHR
+        if: always()
+        run: dev/chr/stop-chr.sh
