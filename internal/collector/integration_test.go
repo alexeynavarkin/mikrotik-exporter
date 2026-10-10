@@ -2,6 +2,7 @@ package collector
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,7 +21,9 @@ import (
 //	MIKROTIK_TEST_ADDRESS=127.0.0.1:8728 go test ./internal/collector -run Integration -v
 //
 // Optional: MIKROTIK_TEST_USERNAME (default admin), MIKROTIK_TEST_PASSWORD,
-// MIKROTIK_TEST_TLS=1 for api-ssl.
+// MIKROTIK_TEST_TLS=1 for api-ssl, MIKROTIK_TEST_REQUIRED_COLLECTORS: comma
+// separated collectors that must succeed (default system,interface), others
+// may be unsupported by the device.
 func TestIntegration(t *testing.T) {
 	address := os.Getenv("MIKROTIK_TEST_ADDRESS")
 	if address == "" {
@@ -30,6 +33,14 @@ func TestIntegration(t *testing.T) {
 	username := os.Getenv("MIKROTIK_TEST_USERNAME")
 	if username == "" {
 		username = "admin"
+	}
+
+	required := []string{"system", "interface"}
+	if env := os.Getenv("MIKROTIK_TEST_REQUIRED_COLLECTORS"); env != "" {
+		required = strings.Split(env, ",")
+	}
+	if err := ValidateCollectors(required); err != nil {
+		t.Fatal(err)
 	}
 
 	core, logs := observer.New(zapcore.DebugLevel)
@@ -78,9 +89,12 @@ func TestIntegration(t *testing.T) {
 		}
 
 		if values["mikrotik_up/"] != 1 {
+			for _, entry := range logs.All() {
+				t.Logf("%s: %s %v", entry.Level, entry.Message, entry.ContextMap())
+			}
 			t.Fatalf("scrape %d: device is not up", i)
 		}
-		for _, name := range []string{"system", "interface"} {
+		for _, name := range required {
 			if values["mikrotik_scrape_collector_success/"+name] != 1 {
 				t.Errorf("scrape %d: collector %s failed", i, name)
 			}

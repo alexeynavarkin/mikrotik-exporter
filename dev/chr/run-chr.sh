@@ -4,7 +4,8 @@
 # re-checks the API and the demo config.
 #
 # Env (all optional):
-#   CHR_VERSION    RouterOS version (default 7.24.5 = "stable" on 2026-10-10; 7.23.8 = "long-term")
+#   CHR_VERSION    RouterOS version (default 7.24.5 = "stable" on 2026-10-10; 7.23.8 = "long-term"),
+#                  or a release channel: stable, long-term, testing, development
 #   CHR_HOME       images, overlays and state (default: ~/.cache/mikrotik-exporter-chr, ~450MB)
 #   CHR_API_PORT   host port for API      (default 8728)
 #   CHR_APISSL_PORT host port for API-SSL (default 8729)
@@ -14,6 +15,8 @@
 #   CHR_MEM        guest RAM MiB (default 512), CHR_CPUS (default 2)
 #   CHR_FRESH=1    discard the writable overlay (factory-fresh router)
 #   CHR_DEMO=0     skip creating demo objects (wireguard peers, dhcp lease, extra disk)
+#   CHR_PACKAGES   extra packages to install, e.g. "container wireless" (the router downloads
+#                  them from download.mikrotik.com, so it needs internet access)
 #   CHR_PASSWORD   if set, set admin's password to this (default: keep empty password)
 #   CHR_BOOT_TIMEOUT seconds to wait for the API (default 600)
 #
@@ -37,10 +40,36 @@ RUN=$CHR_HOME/run
 BIN=$CHR_HOME/bin
 ROSQ=$BIN/rosq
 PIDFILE=$RUN/qemu.pid
-BASE=$DL/chr-$VER.img
 mkdir -p "$DL" "$RUN" "$BIN"
 
 log() { printf '[run-chr %s] %s\n' "$(date +%T)" "$*" >&2; }
+
+# --- release channel -> version ------------------------------------------------------------
+# Same endpoint RouterOS itself uses for "check for updates"; Docker Hub tags as fallback.
+case $VER in
+  stable|long-term|testing|development)
+    CHANNEL=$VER
+    VER=$(curl -fsS --max-time 20 "https://upgrade.mikrotik.com/routeros/NEWESTa7.$CHANNEL" 2>/dev/null | cut -d' ' -f1 || true)
+    if [ -z "$VER" ]; then
+      log "upgrade.mikrotik.com not reachable; resolving $CHANNEL via Docker Hub mikrotik/chr:$CHANNEL"
+      layers="$DL/mikrotik-chr-$CHANNEL"
+      rm -rf "$layers"
+      "$SCRIPTS/pull-layers.sh" mikrotik/chr "$CHANNEL" "$layers" >/dev/null
+      for f in "$layers"/*.tar; do
+        img=$(tar -tf "$f" | grep -m1 '^diskimage/chr-.*\.img$' || true)
+        [ -n "$img" ] || continue
+        VER=${img#diskimage/chr-}; VER=${VER%.img}
+        if [ ! -s "$DL/chr-$VER.img" ]; then
+          tar -xf "$f" -C "$layers" "$img" && mv "$layers/$img" "$DL/chr-$VER.img"
+        fi
+      done
+      rm -rf "$layers"
+    fi
+    [ -n "$VER" ] || { log "could not resolve channel $CHANNEL"; exit 1; }
+    log "channel $CHANNEL is $VER"
+    ;;
+esac
+BASE=$DL/chr-$VER.img
 
 need() { command -v "$1" >/dev/null || { log "missing $1 (apt-get install -y qemu-system-x86 qemu-utils)"; exit 1; }; }
 need qemu-system-x86_64; need qemu-img; need curl; need python3
@@ -105,14 +134,16 @@ else
 fi
 
 # --- wait for API login (QEMU's hostfwd accepts TCP immediately, so test a real login) ----
-T0=$(cat "$RUN/start.ts" 2>/dev/null || date +%s)
-DEADLINE=$(( $(date +%s) + ${CHR_BOOT_TIMEOUT:-600} ))
-until rq -q -t 5s 2>/dev/null || { [ -n "${CHR_PASSWORD:-}" ] && PASS_NOW=$CHR_PASSWORD rq -q -t 5s 2>/dev/null && PASS_NOW=$CHR_PASSWORD; }; do
-  running || { log "qemu died; see $RUN/serial.log"; exit 1; }
-  [ "$(date +%s)" -lt "$DEADLINE" ] || { log "timeout waiting for API"; exit 1; }
-  sleep 3
-done
-log "API login OK ($(( $(date +%s) - T0 ))s since qemu start)"
+wait_api() {
+  local t0=$1 deadline=$(( $(date +%s) + ${CHR_BOOT_TIMEOUT:-600} ))
+  until rq -q -t 5s 2>/dev/null || { [ -n "${CHR_PASSWORD:-}" ] && PASS_NOW=$CHR_PASSWORD rq -q -t 5s 2>/dev/null && PASS_NOW=$CHR_PASSWORD; }; do
+    running || { log "qemu died; see $RUN/serial.log"; exit 1; }
+    [ "$(date +%s)" -lt "$deadline" ] || { log "timeout waiting for API"; exit 1; }
+    sleep 3
+  done
+  log "API login OK ($(( $(date +%s) - t0 ))s)"
+}
+wait_api "$(cat "$RUN/start.ts" 2>/dev/null || date +%s)"
 
 # --- setup -------------------------------------------------------------------------------
 # api service is enabled by default on CHR; make sure anyway.
@@ -120,6 +151,40 @@ rq /ip/service/enable =numbers=api >/dev/null
 if [ -n "${CHR_PASSWORD:-}" ] && [ "$PASS_NOW" != "$CHR_PASSWORD" ]; then
   rq /user/set =numbers=admin "=password=$CHR_PASSWORD" >/dev/null && PASS_NOW=$CHR_PASSWORD
   log "admin password set"
+fi
+
+# api-ssl without a certificate only offers anonymous ciphers, which Go's TLS does not support.
+if rq /ip/service/print ?name=api-ssl =.proplist=certificate | grep -q 'certificate="none"'; then
+  log "creating self-signed certificate for api-ssl"
+  rq /certificate/add =name=api-ssl =common-name=chr =days-valid=3650 >/dev/null
+  rq -t 300s /certificate/sign =number=api-ssl >/dev/null
+  rq /ip/service/set =numbers=api-ssl =certificate=api-ssl >/dev/null
+fi
+
+# --- extra packages (CHR_PACKAGES="container wireless") -------------------------------------
+# RouterOS downloads them itself from download.mikrotik.com and installs them on reboot.
+if [ -n "${CHR_PACKAGES:-}" ]; then
+  installed=$(rq /system/package/print =.proplist=name)
+  missing=()
+  for pkg in $CHR_PACKAGES; do
+    grep -q "name=\"$pkg\"" <<<"$installed" || missing+=("$pkg")
+  done
+  if [ ${#missing[@]} -gt 0 ]; then
+    for pkg in "${missing[@]}"; do
+      log "fetching package $pkg-$VER"
+      rq -t 300s /tool/fetch "=url=https://download.mikrotik.com/routeros/$VER/$pkg-$VER.npk" "=dst-path=$pkg-$VER.npk" >/dev/null ||
+        { log "failed to fetch $pkg-$VER.npk (does the router reach download.mikrotik.com?)"; exit 1; }
+    done
+    log "rebooting to install: ${missing[*]}"
+    rq /system/reboot >/dev/null 2>&1 || true
+    sleep 15
+    wait_api "$(date +%s)"
+    installed=$(rq /system/package/print =.proplist=name)
+    for pkg in "${missing[@]}"; do
+      grep -q "name=\"$pkg\"" <<<"$installed" || { log "package $pkg was not installed"; exit 1; }
+    done
+  fi
+  log "packages installed: $CHR_PACKAGES"
 fi
 
 if [ "${CHR_DEMO:-1}" = 1 ] && ! rq /interface/wireguard/print ?name=wg-a | grep -q 'name="wg-a"'; then

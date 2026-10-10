@@ -19,6 +19,16 @@ targets:
     # collectors: [system, health, interface, wireguard, disk, container, wireless, dhcp]
 ```
 
+With the default api-ssl (port 8729) the service needs a certificate, without
+one RouterOS offers only anonymous TLS ciphers that Go does not support. A
+self-signed one is enough, the exporter does not verify it:
+
+```
+/certificate add name=api-ssl common-name=router days-valid=3650
+/certificate sign api-ssl
+/ip service set api-ssl certificate=api-ssl
+```
+
 A read-only user is enough:
 
 ```
@@ -94,7 +104,8 @@ go test ./...
 QEMU in the background, waits for the API and creates demo objects: two WireGuard
 interfaces peered with each other, a DHCP server with static leases and a
 formatted data disk. It uses KVM when `/dev/kvm` is writable and software
-emulation otherwise (2-5 minutes to boot).
+emulation otherwise (2-5 minutes to boot). It also issues a self-signed
+certificate for api-ssl.
 
 ```sh
 sudo apt-get install -y qemu-system-x86 qemu-utils   # needs Go and curl too
@@ -111,11 +122,18 @@ registry and fails on collector errors, reconnects or duplicate series.
 `go run ./dev/rosq /system/resource/print` runs ad-hoc API commands.
 
 Options are environment variables documented at the top of `run-chr.sh`:
-`CHR_VERSION`, `CHR_FRESH=1` for a factory-fresh router, `CHR_DEMO=0`, ports,
+`CHR_VERSION` (a version or a channel: `stable`, `long-term`), `CHR_PACKAGES`
+(e.g. `container wireless`, downloaded by the router itself, so it needs internet
+access), `CHR_FRESH=1` for a factory-fresh router, `CHR_DEMO=0`, ports,
 `CHR_HOME` (images and state, `~/.cache/mikrotik-exporter-chr` by default).
 The image comes from download.mikrotik.com, or from MikroTik's official
 `mikrotik/chr` Docker Hub image when that site is not reachable.
 
-CHR limitations: no radios (`/interface/wifi` exists but has no clients), no
-sensors in `/system/health`, no extra packages such as `container` or
-`wireless`, so those collectors are only covered by unit tests.
+The `Integration` workflow does the same on GitHub Actions (with KVM) for the
+current stable and long-term releases, with the `container` and `wireless`
+packages installed, over both api and api-ssl, and weekly to catch new releases.
+
+CHR limitations: no radios (`/interface/wifi` and `/interface/wireless` exist
+but have no clients) and no sensors in `/system/health`, so client and sensor
+metrics are only covered by unit tests. Containers cannot run without
+device-mode, only the `/container` menu is exercised.
