@@ -50,9 +50,10 @@ func (c *healthCollector) collect(ctx context.Context, target Target, ch chan<- 
 			continue
 		}
 
-		// RouterOS 6: single sentence with sensor names as keys.
+		// RouterOS 6: single sentence with sensor names as keys. RouterOS 7
+		// devices without sensors (e.g. CHR) reply with state flags only.
 		for key, value := range re.Map {
-			if strings.HasPrefix(key, ".") {
+			if strings.HasPrefix(key, ".") || strings.HasPrefix(key, "state") {
 				continue
 			}
 			c.emit(ch, key, unitFromSensorName(key), value, target.Name)

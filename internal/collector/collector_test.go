@@ -147,6 +147,14 @@ mikrotik_health_voltage_volts{name="r1",sensor="voltage"} 24.1
 		"mikrotik_health_value",
 	)
 
+	// CHR and other RouterOS 7 devices without sensors.
+	noSensors := &fakeClient{replies: map[string][]map[string]string{
+		"/system/health/print": {{"state": "disabled", "state-after-reboot": "enabled"}},
+	}}
+	if n := testutil.CollectAndCount(newTestCollector(noSensors, "health"), "mikrotik_health_value"); n != 0 {
+		t.Errorf("expected no health metrics without sensors, got %d", n)
+	}
+
 	assertMetrics(t, newTestCollector(ros6, "health"), `
 # HELP mikrotik_health_temperature_celsius Temperature sensor reading
 # TYPE mikrotik_health_temperature_celsius gauge

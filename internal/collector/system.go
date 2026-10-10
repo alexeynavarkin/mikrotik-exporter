@@ -37,7 +37,7 @@ func newSystemCollector() subCollector {
 			"Total CPU load in percent",
 		),
 		cpuCount: newDesc(
-			"system_cpu_count",
+			"system_cpu_cores",
 			"Number of CPU cores",
 		),
 		cpuFrequency: newDesc(

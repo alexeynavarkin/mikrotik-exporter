@@ -1,0 +1,9 @@
+# Exporter config for the CHR started by run-chr.sh:
+#   go run ./cmd --config-file=dev/chr/exporter.yml --listen-address=127.0.0.1:9199
+targets:
+  - name: chr
+    address: 127.0.0.1:8728
+    username: admin
+    password: ""
+    plaintext: true
+    collectors: [system, health, interface, wireguard, disk, container, wireless, dhcp]
